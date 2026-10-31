@@ -1,0 +1,12 @@
+{
+  "domain": "diag_hub",
+  "name": "Diag Hub",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": ["frontend", "http"],
+  "documentation": "https://example.invalid/diag_hub",
+  "iot_class": "local_push",
+  "issue_tracker": "https://example.invalid/diag_hub/issues",
+  "requirements": [],
+  "version": "0.6.4"
+}

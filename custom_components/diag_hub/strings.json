@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "集成诊断",
+        "description": "开发期自检工具：按集成统计状态写入频率、内存、监听器与日志。四块能力各由一个开关控制，关闭时完全停止采集、零开销。"
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Diag Hub 已添加，只允许一个实例。"
+    }
+  }
+}

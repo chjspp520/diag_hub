@@ -1,0 +1,1046 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>集成诊断</title>
+<style>
+  :root {
+    --bg: #11151c;
+    --panel: #171d26;
+    --panel-2: #1b2230;
+    --line: #2a3441;
+    --text: #e7edf5;
+    --dim: #8b97a7;
+    --accent: #3d9df3;
+    --ok: #45c07a;
+    --warn: #e0a33a;
+    --bad: #ef5f52;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .bar {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: linear-gradient(180deg, #1b2230, #151b24);
+    border-bottom: 1px solid var(--line);
+  }
+  .title { font-size: 15px; font-weight: 600; letter-spacing: .3px; }
+  .title .sub { font-size: 11px; font-weight: 400; color: var(--dim); margin-left: 6px; }
+  .spacer { flex: 1; }
+  .meta { color: var(--dim); font-size: 11.5px; white-space: nowrap; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--line); background: #1a2129;
+    color: var(--dim); font-size: 11.5px; white-space: nowrap;
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #4a5666; }
+  .pill.on { color: #cfe8d8; border-color: #2e5741; background: #16241c; }
+  .pill.on .dot { background: var(--ok); box-shadow: 0 0 6px rgba(69,192,122,.7); }
+  .btn {
+    appearance: none; cursor: pointer;
+    border: 1px solid var(--line); background: #202a38; color: var(--text);
+    border-radius: 8px; padding: 4px 10px; font-size: 12px;
+  }
+  .btn:hover { border-color: var(--accent); }
+  main { padding: 12px 14px 24px; }
+  .kpis {
+    display: grid; gap: 10px; margin-bottom: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+  .kpi {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 9px 11px;
+  }
+  .kpi .k { color: var(--dim); font-size: 11.5px; }
+  .kpi .v { font-size: 19px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .kpi .u { font-size: 11px; color: var(--dim); font-weight: 400; margin-left: 3px; }
+  [data-tip] { cursor: help; border-bottom: 1px dotted rgba(139, 151, 167, .45); }
+  [data-tip]:hover { color: var(--text); border-bottom-color: var(--accent); }
+  .tip-box {
+    position: fixed;
+    z-index: 60;
+    max-width: 360px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #0d1117;
+    color: var(--text);
+    font-size: 11.5px;
+    line-height: 1.6;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .6);
+    white-space: pre-line;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity .12s ease, transform .12s ease;
+  }
+  .tip-box.show { opacity: 1; transform: translateY(0); }
+  .grid {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; overflow: hidden; min-width: 0;
+  }
+  .card.wide { grid-column: span 2; }
+  @media (max-width: 900px) { .card.wide { grid-column: span 1; } }
+  .card > h2 {
+    display: flex; align-items: baseline; gap: 8px;
+    margin: 0; padding: 9px 12px;
+    font-size: 12.5px; font-weight: 600; letter-spacing: .4px;
+    background: var(--panel-2); border-bottom: 1px solid var(--line);
+  }
+  .card > h2 .hint { font-weight: 400; font-size: 11px; color: var(--dim); }
+  .card .body { padding: 4px 0 6px; }
+  .empty { padding: 14px 12px; color: var(--dim); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 4px 10px; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th {
+    position: sticky; top: 0;
+    font-weight: 500; font-size: 11px; color: var(--dim);
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  tbody tr:nth-child(even) { background: rgba(255,255,255,.018); }
+  tbody tr:hover { background: rgba(61,157,243,.08); }
+  td.name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  td.bad { color: var(--bad); }
+  td.warn { color: var(--warn); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11.5px; }
+  .trace { color: #b9c6d6; word-break: break-all; white-space: normal; }
+  .sub-line { padding: 6px 12px 2px; color: var(--dim); font-size: 11.5px; }
+  .hot-block { border-top: 1px solid var(--line); margin-top: 6px; }
+  .hot-block .hot-title { color: var(--text); }
+  .hot-block td.name { max-width: 420px; }
+  .scroll-box { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }
+  .scroll-box thead th { z-index: 2; }
+  .scroll-box::-webkit-scrollbar { width: 8px; }
+  .scroll-box::-webkit-scrollbar-track { background: transparent; }
+  .scroll-box::-webkit-scrollbar-thumb { background: #2a3441; border-radius: 4px; }
+  .scroll-box::-webkit-scrollbar-thumb:hover { background: #3a4b60; }
+  .mem-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
+  .mem-bar .btn { padding: 3px 9px; font-size: 11.5px; }
+  .mem-bar .btn[hidden] { display: none; }
+  .mem-bar .btn:disabled { opacity: .5; cursor: default; border-color: var(--line); }
+  td.up { color: var(--bad); }
+  td.down { color: var(--ok); }
+  .err {
+    margin: 0 0 10px; padding: 8px 12px; border-radius: 8px;
+    border: 1px solid #5a2327; background: #2a1618; color: #ffb4ae;
+    display: none;
+  }
+  .err.show { display: block; }
+  .btn.primary { border-color: #2f6fa8; background: #1d3550; }
+  .btn.primary:hover { border-color: var(--accent); background: #21405f; }
+  .btn.ok { border-color: #2e5741; background: #16241c; color: #b7e6c8; }
+  .copy-mask {
+    position: fixed; inset: 0; z-index: 20;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(6, 9, 13, .72); backdrop-filter: blur(3px);
+    padding: 20px;
+  }
+  .copy-mask.show { display: flex; }
+  .copy-panel {
+    width: min(760px, 96vw); max-height: 84vh;
+    display: flex; flex-direction: column; gap: 8px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px; box-shadow: 0 18px 60px rgba(0,0,0,.6);
+  }
+  .copy-panel h3 { margin: 0; font-size: 13px; font-weight: 600; }
+  .copy-panel .tip { color: var(--dim); font-size: 11.5px; }
+  .copy-panel textarea {
+    flex: 1 1 auto; min-height: 280px; resize: vertical;
+    background: #0d1117; color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; font: 11.5px/1.5 ui-monospace, Consolas, monospace;
+  }
+  .copy-panel .foot { display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div class="title">集成诊断<span class="sub">Diag Hub</span></div>
+    <div class="pills" id="pills"></div>
+    <div class="spacer"></div>
+    <div class="meta" id="meta">加载中…</div>
+    <button class="btn primary" id="copy" type="button">复制报告</button>
+    <button class="btn" id="toggle" type="button">暂停</button>
+  </div>
+  <div class="copy-mask" id="copy-mask">
+    <div class="copy-panel">
+      <h3>自动复制失败，请手动复制</h3>
+      <div class="tip">文本已全选：按 Ctrl+C（Mac 为 ⌘+C）复制，然后关掉这个窗口。</div>
+      <textarea id="copy-text" readonly spellcheck="false"></textarea>
+      <div class="foot">
+        <button class="btn primary" id="copy-select" type="button">重新全选</button>
+        <button class="btn" id="copy-close" type="button">关闭</button>
+      </div>
+    </div>
+  </div>
+  <main>
+    <div class="err" id="err"></div>
+    <section class="kpis" id="kpis"></section>
+    <div class="grid">
+      <section class="card wide">
+        <h2>写入排行<span class="hint">按最近 60 分钟状态写入量</span></h2>
+        <div class="body" id="activity"></div>
+      </section>
+      <section class="card">
+        <h2>任务<span class="hint">asyncio 归属</span></h2>
+        <div class="body" id="tasks"></div>
+      </section>
+      <section class="card">
+        <h2>内存归因<span class="hint">tracemalloc</span></h2>
+        <div class="mem-bar" id="mem-bar">
+          <button class="btn primary" id="mem-toggle" type="button">开启追踪</button>
+          <button class="btn" id="mem-usage" type="button">当前分布</button>
+          <button class="btn" id="mem-snap" type="button">设基线</button>
+          <button class="btn" id="mem-diff" type="button">看增量</button>
+          <button class="btn" id="mem-auto" type="button" hidden>回到实时</button>
+        </div>
+        <div class="body" id="memory"></div>
+      </section>
+      <section class="card">
+        <h2>监听器<span class="hint">存活 / 峰值 / 累计注册</span></h2>
+        <div class="body" id="listeners"></div>
+      </section>
+      <section class="card">
+        <h2>日志计数<span class="hint" data-tip="按集成统计 warning / error / critical 条数，只保留每个集成的最后一条摘要。
+若出现 State attributes ... exceed maximum size of 16384 bytes：某个实体的属性序列化后超过 16KB，Recorder 会放弃存储这些属性，长期会拖慢数据库写入。">warning 及以上</span></h2>
+        <div class="body" id="logs"></div>
+      </section>
+    </div>
+  </main>
+<script>
+(() => {
+  "use strict";
+
+  const API_BASE = "/api/diag_hub";
+  const INTERVAL = 5000;
+  // 设了 const.API_TOKEN 时，从页面 URL 上带过来（/diag_hub/page?t=xxx）
+  const TOKEN = new URLSearchParams(window.location.search).get("t") || "";
+  let timer = null;
+  let paused = false;
+  let lastData = null;
+  // 内存卡片的手动视图（null = 跟随每 5 秒的自动快照）
+  let memView = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  // ---- 悬浮说明：带 data-tip 的元素 → 统一气泡（定位用 fixed，不参与布局）----
+  const tipBox = document.createElement("div");
+  tipBox.className = "tip-box";
+  document.body.appendChild(tipBox);
+
+  function hideTip() {
+    tipBox.classList.remove("show");
+  }
+
+  function placeTip(target) {
+    const rect = target.getBoundingClientRect();
+    const box = tipBox.getBoundingClientRect();
+    const pad = 8;
+    const maxLeft = Math.max(pad, window.innerWidth - pad - box.width);
+    let top = rect.bottom + 6;
+    if (top + box.height > window.innerHeight - pad) {
+      top = Math.max(pad, rect.top - box.height - 6);
+    }
+    tipBox.style.left = Math.min(Math.max(pad, rect.left), maxLeft) + "px";
+    tipBox.style.top = top + "px";
+  }
+
+  function tipTarget(node) {
+    return node instanceof Element ? node.closest("[data-tip]") : null;
+  }
+
+  function showTip(target) {
+    const text = target.getAttribute("data-tip") || "";
+    if (!text) { return false; }
+    if (tipBox.textContent !== text) { tipBox.textContent = text; }
+    tipBox.classList.add("show");
+    placeTip(target);
+    return true;
+  }
+
+  document.addEventListener("mouseover", (ev) => {
+    const target = tipTarget(ev.target);
+    if (target) { showTip(target); }
+  });
+  document.addEventListener("mouseout", (ev) => {
+    const target = tipTarget(ev.target);
+    if (!target) { return; }
+    if (ev.relatedTarget instanceof Node && target.contains(ev.relatedTarget)) { return; }
+    hideTip();
+  });
+  document.addEventListener("focusin", (ev) => {
+    const target = tipTarget(ev.target);
+    if (target) { showTip(target); }
+  });
+  document.addEventListener("focusout", hideTip);
+  window.addEventListener("scroll", hideTip, true);
+  window.addEventListener("resize", hideTip);
+
+  async function api(params) {
+    const query = params + (TOKEN ? "&t=" + encodeURIComponent(TOKEN) : "");
+    const resp = await fetch(API_BASE + "?" + query, {
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    if (!resp.ok) { throw new Error("HTTP " + resp.status); }
+    return resp.json();
+  }
+
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) { node.className = cls; }
+    if (text !== undefined && text !== null) { node.textContent = String(text); }
+    return node;
+  }
+
+  function fmt(value, digits) {
+    if (value === null || value === undefined || value === "") { return "-"; }
+    if (typeof value !== "number") { return String(value); }
+    if (Number.isInteger(value) && digits === undefined) { return value.toLocaleString(); }
+    return value.toFixed(digits === undefined ? 2 : digits);
+  }
+
+  function fmtUptime(seconds) {
+    const total = Math.max(0, Math.floor(seconds || 0));
+    if (total < 60) { return "不足 1 分（" + total + " 秒）"; }
+    const d = Math.floor(total / 86400);
+    const h = Math.floor((total % 86400) / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    return (d ? d + "天" : "") + (h ? h + "小时" : "") + m + "分";
+  }
+
+  function table(headers, rows, opts) {
+    if (!rows.length) {
+      return el("div", "empty", (opts && opts.empty) || "暂无数据");
+    }
+    const wrap = el("div");
+    const tbl = el("table");
+    const thead = el("thead");
+    const trh = el("tr");
+    headers.forEach((h) => trh.appendChild(el("th", null, h)));
+    thead.appendChild(trh);
+    tbl.appendChild(thead);
+    const tbody = el("tbody");
+    rows.forEach((cells) => {
+      const tr = el("tr");
+      cells.forEach((cell) => {
+        if (cell instanceof Node) { tr.appendChild(cell); return; }
+        const td = el("td", null, cell === 0 ? "0" : (cell || ""));
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+    wrap.appendChild(tbl);
+    return wrap;
+  }
+
+  function cell(text, cls) {
+    return el("td", cls || null, text);
+  }
+
+  function renderPills(data) {
+    const box = $("pills");
+    box.textContent = "";
+    const items = [
+      ["活动统计", !!data.activity.enabled],
+      ["内存追踪", !!data.memory.enabled],
+      ["监听器", !!data.listeners.enabled],
+      ["日志", !!data.logs.enabled],
+    ];
+    items.forEach(([name, on]) => {
+      const pill = el("span", "pill" + (on ? " on" : ""));
+      pill.appendChild(el("span", "dot"));
+      pill.appendChild(el("span", null, name));
+      box.appendChild(pill);
+    });
+  }
+
+  function procRss(proc) {
+    if (!proc || proc.error || !proc.vmrss) { return "-"; }
+    const kb = parseInt(proc.vmrss, 10);
+    if (!Number.isFinite(kb)) { return proc.vmrss; }
+    return (kb / 1024).toFixed(0) + " MB";
+  }
+
+  function renderKpis(data) {
+    const act = data.activity || {};
+    const proc = act.proc || {};
+    const mem = data.memory || {};
+    const uptime = Number(act.uptime_seconds || 0);
+    const warming = act.enabled && uptime < 60;
+    const items = [
+      ["写入速率", warming ? "统计中" : fmt(act.events_per_min, 2),
+        warming ? "已 " + fmt(uptime) + " 秒" : "次/分"],
+      ["事件总数", fmt(act.events_total), ""],
+      ["任务", fmt((act.tasks || {}).total), ""],
+      ["监听器存活", fmt((data.listeners || {}).total_live), ""],
+      ["warning 及以上", fmt((data.logs || {}).total), ""],
+      ["内存总量", fmt(mem.total_mb, 1), "MB"],
+      ["进程 RSS", procRss(proc), proc.threads ? proc.threads + "线程" : ""],
+      ["运行时长", fmtUptime(act.uptime_seconds), ""],
+    ];
+    const box = $("kpis");
+    box.textContent = "";
+    items.forEach(([k, v, u]) => {
+      const card = el("div", "kpi");
+      card.appendChild(el("div", "k", k));
+      const value = el("div", "v", v);
+      if (u) { value.appendChild(el("span", "u", u)); }
+      card.appendChild(value);
+      box.appendChild(card);
+    });
+  }
+
+  function renderActivity(act) {
+    const rows = (act.integrations || []).map((r) => [
+      cell(r.domain, "name mono"),
+      fmt(r.window_per_min, 2),
+      fmt(r.last_minute),
+      fmt(r.entities),
+      fmt(r.tasks),
+      fmt(r.total),
+    ]);
+    $("activity").textContent = "";
+    $("activity").appendChild(table(
+      ["集成", "次/分", "最近1分", "实体", "任务", "累计"],
+      rows,
+      { empty: act.enabled ? "最近 60 分钟没有状态写入" : "活动统计未开启（switch.diag_hub_activity）" }
+    ));
+    const hot = act.hot_entities || [];
+    if (act.enabled && hot.length) {
+      const total = Number(act.hot_entity_count || hot.length);
+      const wrap = el("div", "hot-block");
+      const title = el("div", "sub-line");
+      title.appendChild(el("span", "hot-title", "写入最频繁的实体"));
+      title.appendChild(el("span", null,
+        "  共 " + fmt(total) + " 个有写入" +
+        (hot.length < total ? "，按累计降序显示前 " + fmt(hot.length) + " 个 · 可滚动" : " · 可滚动")));
+      wrap.appendChild(title);
+
+      const scroll = el("div", "scroll-box");
+      const tbl = el("table");
+      const thead = el("thead");
+      const trh = el("tr");
+      ["实体", "集成", "累计写入"].forEach((h) => trh.appendChild(el("th", null, h)));
+      thead.appendChild(trh);
+      tbl.appendChild(thead);
+      const tbody = el("tbody");
+      hot.forEach((r) => {
+        const tr = el("tr");
+        const name = cell(r.entity, "name mono");
+        name.title = r.entity;
+        tr.appendChild(name);
+        tr.appendChild(cell(r.domain, "mono"));
+        tr.appendChild(cell(fmt(r.hits)));
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+      scroll.appendChild(tbl);
+      wrap.appendChild(scroll);
+      $("activity").appendChild(wrap);
+    }
+  }
+
+  function renderTasks(data) {
+    const tasks = (data.activity || {}).tasks || {};
+    const box = $("tasks");
+    box.textContent = "";
+    box.appendChild(el("div", "sub-line", "任务总数：" + fmt(tasks.total)));
+    const byDomain = (tasks.by_domain || []).map((pair) => [
+      cell(pair[0], "name mono"),
+      fmt(pair[1]),
+    ]);
+    box.appendChild(table(["集成", "任务数"], byDomain, { empty: "没有登记任务" }));
+    const byName = (tasks.by_name || []).slice(0, 8);
+    if (byName.length) {
+      box.appendChild(el("div", "sub-line", "同名任务（归一化）"));
+      byName.forEach((pair) => {
+        const line = el("div", "sub-line mono trace", pair[0] + "  × " + pair[1]);
+        box.appendChild(line);
+      });
+    }
+  }
+
+  function signedMb(value) {
+    const num = Number(value || 0);
+    return (num > 0 ? "+" : "") + fmt(num, 2);
+  }
+
+  function currentMemory() {
+    if (memView && memView.data) { return memView.data; }
+    return (lastData && lastData.memory) || {};
+  }
+
+  function traceTable(top, label) {
+    const wrap = el("div");
+    wrap.appendChild(el("div", "sub-line", label));
+    const tbl = el("table");
+    const tbody = el("tbody");
+    top.slice(0, 8).forEach((t) => {
+      const tr = el("tr");
+      tr.appendChild(el("td", "trace mono", t.trace));
+      tr.appendChild(el("td", null, fmt(t.kb, 1)));
+      tr.appendChild(el("td", null, fmt(t.count)));
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+    wrap.appendChild(tbl);
+    return wrap;
+  }
+
+  function renderMemoryDiff(box, mem) {
+    box.appendChild(el("div", "sub-line",
+      "基线 " + (mem.baseline_at || "-") + " ／ 窗口 " + fmt(mem.window_seconds) +
+      " 秒 ／ 总增量 " + signedMb(mem.total_mb) + " MB"));
+    const rows = (mem.integrations || []).map((r) => {
+      const value = Number(r.mb || 0);
+      return [
+        cell(r.domain, "name mono"),
+        cell(signedMb(value), value > 0 ? "up" : (value < 0 ? "down" : null)),
+      ];
+    });
+    box.appendChild(table(["集成", "增量 MB"], rows, { empty: "增量都在 1 KB 以内（噪声已过滤）" }));
+    const top = mem.top || [];
+    if (top.length) {
+      box.appendChild(traceTable(top, "增量最大的分配点"));
+    }
+  }
+
+  function renderMemory() {
+    const mem = currentMemory();
+    const box = $("memory");
+    box.textContent = "";
+
+    $("mem-toggle").textContent = mem.enabled ? "关闭追踪" : "开启追踪";
+    $("mem-toggle").classList.toggle("primary", !mem.enabled);
+    $("mem-auto").hidden = !memView;
+    $("mem-usage").disabled = !mem.enabled;
+    $("mem-snap").disabled = !mem.enabled;
+    $("mem-diff").disabled = !mem.enabled;
+
+    box.appendChild(el("div", "sub-line",
+      "tracemalloc 只统计开启之后新分配且仍在世的对象，总量远小于进程 RSS；开启时间越短数值越小，看增长请走「设基线 → 看增量」"));
+
+    if (memView && memView.data && memView.data.error) {
+      box.appendChild(el("div", "empty", "内存操作失败：" + memView.data.error));
+      return;
+    }
+    if (!mem.enabled) {
+      box.appendChild(el("div", "empty", memView && memView.action === "memstop"
+        ? "已关闭内存追踪（tracemalloc 已停止）"
+        : "未开启内存追踪：点上面「开启追踪」，或打开 switch.diag_hub_memory"));
+      return;
+    }
+
+    const mode = mem.mode || "usage";
+    if (mode === "diff") {
+      renderMemoryDiff(box, mem);
+      return;
+    }
+    if (mode === "snap") {
+      box.appendChild(el("div", "sub-line",
+        "基线已建立：" + (mem.baseline_at || "-") + "，等 30~60 分钟后再点「看增量」"));
+      return;
+    }
+
+    box.appendChild(el("div", "sub-line",
+      "总量 " + fmt(mem.total_mb, 1) + " MB ／ 块数 " + fmt(mem.total_blocks) +
+      (mem.elapsed_seconds !== undefined ? " ／ " + fmt(mem.elapsed_seconds) + " 秒前" : "") +
+      (memView ? "（手动快照）" : "")));
+    const rows = (mem.integrations || []).map((r) => [
+      cell(r.domain, "name mono"),
+      fmt(r.mb, 2),
+      fmt(r.percent, 1) + "%",
+      fmt(r.blocks),
+    ]);
+    box.appendChild(table(
+      ["集成", "MB", "占比", "块数"],
+      rows,
+      { empty: "还没有采样（开启后约 1 秒刷新）" }
+    ));
+    const top = mem.top || [];
+    if (top.length) {
+      box.appendChild(traceTable(top, "最大分配点"));
+    }
+  }
+
+  async function memAction(action) {
+    const buttons = Array.prototype.slice.call($("mem-bar").querySelectorAll("button"));
+    buttons.forEach((btn) => { btn.disabled = true; });
+    try {
+      if (action === "auto") {
+        memView = null;
+      } else {
+        const data = await api("a=" + action);
+        memView = { action, data };
+        if (action === "memstart" || action === "memstop") {
+          await load();  // 开关状态变了，顺手刷新其它卡片
+        }
+      }
+    } catch (err) {
+      memView = {
+        action,
+        data: { enabled: memView ? !!(memView.data || {}).enabled : false,
+                error: (err && err.message) ? err.message : String(err) },
+      };
+    } finally {
+      buttons.forEach((btn) => { btn.disabled = false; });
+      renderMemory();
+    }
+  }
+
+  function renderListeners(snap) {
+    const box = $("listeners");
+    box.textContent = "";
+    if (!snap.enabled) {
+      box.appendChild(el("div", "empty", snap.patch_error
+        ? "监听器统计启动失败：" + snap.patch_error
+        : "未开启监听器统计（switch.diag_hub_listeners）"));
+      return;
+    }
+    if (snap.patch_error) {
+      box.appendChild(el("div", "sub-line", "包装失败：" + snap.patch_error));
+    }
+    const rows = (snap.integrations || []).map((r) => [
+      cell(r.domain, "name mono"),
+      fmt(r.live),
+      fmt(r.peak),
+      fmt(r.registered),
+    ]);
+    box.appendChild(table(["集成", "存活", "峰值", "累计注册"], rows));
+    if (!(snap.integrations || []).length) {
+      box.appendChild(el("div", "sub-line",
+        "开关已打开，但还没有新的注册事件；重载一次集成就能立刻看到归属"));
+    }
+    const byEvent = (snap.by_event || []).slice(0, 8);
+    if (byEvent.length) {
+      box.appendChild(el("div", "sub-line", "按事件"));
+      byEvent.forEach((row) => {
+        box.appendChild(el("div", "sub-line mono trace", row.key + "  " + row.live));
+      });
+    }
+    box.appendChild(el("div", "sub-line",
+      "只统计开关打开之后发生的注册；已在运行的集成要重载一次才会重新登记"));
+  }
+
+  function renderLogs(snap) {
+    const box = $("logs");
+    box.textContent = "";
+    if (!snap.enabled) {
+      box.appendChild(el("div", "empty", "未开启日志计数（switch.diag_hub_logs）"));
+      return;
+    }
+    const rows = (snap.integrations || []).map((r) => {
+      const tr = el("tr");
+      tr.appendChild(cell(r.domain, "name mono"));
+      tr.appendChild(cell(fmt(r.error), r.error ? "bad" : null));
+      tr.appendChild(cell(fmt(r.critical), r.critical ? "bad" : null));
+      tr.appendChild(cell(fmt(r.warning), r.warning ? "warn" : null));
+      tr.appendChild(cell(fmt(r.total)));
+      return tr;
+    });
+    if (!rows.length) {
+      box.appendChild(el("div", "empty", "还没有 warning 及以上日志"));
+      return;
+    }
+    const wrap = el("div");
+    const tbl = el("table");
+    const thead = el("thead");
+    const trh = el("tr");
+    ["集成", "error", "critical", "warning", "合计"].forEach((h) => trh.appendChild(el("th", null, h)));
+    thead.appendChild(trh);
+    tbl.appendChild(thead);
+    const tbody = el("tbody");
+    rows.forEach((tr) => tbody.appendChild(tr));
+    tbl.appendChild(tbody);
+    wrap.appendChild(tbl);
+    box.appendChild(wrap);
+    const last = (snap.integrations || []).find((r) => r.last);
+    if (last) {
+      box.appendChild(el("div", "sub-line mono trace", "最近一条 · " + last.domain + "：" + last.last));
+    }
+  }
+
+  function render(data) {
+    lastData = data;
+    renderPills(data);
+    renderKpis(data);
+    renderActivity(data.activity || {});
+    renderTasks(data);
+    renderMemory();
+    renderListeners(data.listeners || {});
+    renderLogs(data.logs || {});
+    $("meta").textContent = "更新于 " + new Date().toLocaleTimeString() +
+      (paused ? "（已暂停）" : " · 每 5 秒");
+    $("err").classList.remove("show");
+  }
+
+  // ---- 一键复制：把当前视图拼成 Markdown，方便直接贴给别人排查 ----
+  function clamp(text, limit) {
+    const flat = String(text === null || text === undefined ? "" : text).replace(/\s+/g, " ").trim();
+    return flat.length > limit ? flat.slice(0, limit) + "…" : flat;
+  }
+
+  function rowOut(values) {
+    return "| " + values.join(" | ") + " |";
+  }
+
+  // 自动挑出几个值得先看的地方，省得对方通读表格
+  function buildHighlights(data, mem, lis, logs) {
+    const act = data.activity || {};
+    const entries = data.entries || {};
+    const lines = [];
+    if (entries.setup_error && entries.setup_error.length) {
+      lines.push("加载失败：" + entries.setup_error.join("、") + "（这些条目的实体与服务会整体缺失）");
+    }
+    if (entries.setup_retry && entries.setup_retry.length) {
+      lines.push("加载重试中：" + entries.setup_retry.join("、"));
+    }
+    const hot = (act.integrations || [])[0];
+    if (act.enabled && hot) {
+      lines.push("写入最快：" + hot.domain + "（" + fmt(hot.window_per_min, 2) + " 次/分，窗口内 " +
+        fmt(hot.window_events) + " 次，实体 " + fmt(hot.entities) + "）");
+    }
+    const hotEntity = (act.hot_entities || [])[0];
+    if (act.enabled && hotEntity) {
+      lines.push("写入最多的实体：" + hotEntity.entity + "（" + fmt(hotEntity.hits) + " 次）");
+    }
+    const memHot = (mem.integrations || [])[0];
+    if (mem.enabled && memHot && mem.mode !== "diff") {
+      lines.push("内存占用最大：" + memHot.domain + " " + fmt(memHot.mb, 2) + " MB（" +
+        fmt(memHot.percent, 1) + "%）");
+    }
+    if (mem.enabled && mem.mode === "diff" && Number(mem.total_mb || 0) > 0) {
+      lines.push("内存还在涨：" + signedMb(mem.total_mb) + " MB / " + fmt(mem.window_seconds) + " 秒");
+    }
+    if (mem.enabled && mem.tracing_seconds !== null && mem.tracing_seconds !== undefined &&
+        Number(mem.tracing_seconds) < 300) {
+      lines.push("内存追踪才开始 " + fmt(mem.tracing_seconds) + " 秒：tracemalloc 只统计开启之后新分配的对象，" +
+        "总量远小于进程 RSS，要看增长请先设基线");
+    }
+    (lis.integrations || [])
+      .filter((r) => r.registered >= 50 || r.live > r.peak)
+      .slice(0, 5)
+      .forEach((r) => lines.push("监听器注册偏多：" + r.domain + "（累计注册 " +
+        fmt(r.registered) + " / 存活 " + fmt(r.live) + " / 峰值 " + fmt(r.peak) + "）"));
+    (logs.integrations || [])
+      .filter((r) => r.error || r.critical)
+      .slice(0, 5)
+      .forEach((r) => lines.push("日志异常：" + r.domain + "（error " + fmt(r.error) +
+        " / critical " + fmt(r.critical) + " / warning " + fmt(r.warning) + "）"));
+    if (lis.patch_error) {
+      lines.push("监听器包装失败：" + lis.patch_error);
+    }
+    return lines;
+  }
+
+  function buildReport() {
+    const data = lastData;
+    if (!data) { return ""; }
+    const act = data.activity || {};
+    const tasks = act.tasks || {};
+    // 与界面一致：内存卡片正在手动视图时，报告也用它
+    const mem = currentMemory();
+    const lis = data.listeners || {};
+    const logs = data.logs || {};
+    const out = [];
+
+    out.push("## 集成诊断报告");
+    out.push("");
+    out.push("- 生成时间：" + (data.generated_at || new Date().toLocaleString()));
+    out.push("- HA 版本：" + (data.hass_version || "-"));
+    out.push("- Python：" + (data.python_version || "-") + "（" + (data.platform || "-") + "）");
+    out.push("- 环境：" + (data.config_dir || "-") + " · 实体 " + fmt(data.entity_count) +
+      " · 已加载集成 " + fmt(data.component_count));
+    const entries = data.entries || {};
+    out.push("- 集成条目：" + fmt(entries.total) + "（已加载 " + fmt(entries.loaded) +
+      " · 未加载 " + fmt(entries.not_loaded) +
+      ((entries.setup_retry || []).length ? " · 重试 " + entries.setup_retry.join("、") : "") +
+      ((entries.setup_error || []).length ? " · 失败 " + entries.setup_error.join("、") : "") +
+      "）");
+    out.push("- 运行时长：" + fmtUptime(act.uptime_seconds));
+    if (act.enabled && Number(act.uptime_seconds || 0) < 60) {
+      out.push("- 状态写入：统计中（已 " + fmt(act.uptime_seconds) + " 秒，累计 " +
+        fmt(act.events_total) + " 次；速率满 1 分钟后才准）");
+    } else {
+      out.push("- 状态写入：" + fmt(act.events_per_min, 2) + " 次/分（累计 " +
+        fmt(act.events_total) + " 次）");
+    }
+    out.push("- 进程 RSS：" + procRss(act.proc || {}) +
+      (act.proc && act.proc.threads ? " / " + act.proc.threads + " 线程" : "") +
+      "（整个 HA 进程；下面 tracemalloc 的数值只算开启后新分配的对象，两者不能直接比较）");
+    out.push("- 开关：活动统计=" + (act.enabled ? "开" : "关") +
+      " / 内存追踪=" + (mem.enabled ? "开" : "关") +
+      " / 监听器统计=" + (lis.enabled ? "开" : "关") +
+      " / 日志计数=" + (logs.enabled ? "开" : "关"));
+    out.push("");
+
+    const highlights = buildHighlights(data, mem, lis, logs);
+    out.push("### 关注点");
+    out.push(highlights.length ? highlights.map((line) => "- " + line).join("\n") : "- 无明显异常信号");
+    out.push("");
+
+    const rows = (act.integrations || []).slice(0, 30);
+    out.push("### 状态写入排行（最近 " + (act.window_minutes || 60) + " 分钟，" +
+      fmt(act.integration_count) + " 个集成）");
+    if (!act.enabled) {
+      out.push("（活动统计未开启：switch.diag_hub_activity）");
+    } else if (rows.length) {
+      out.push(rowOut(["集成", "次/分", "窗口内", "最近1分", "实体", "任务", "累计"]));
+      out.push("|:--|--:|--:|--:|--:|--:|--:|");
+      rows.forEach((r) => out.push(rowOut([
+        r.domain, fmt(r.window_per_min, 2), fmt(r.window_events), fmt(r.last_minute),
+        fmt(r.entities), fmt(r.tasks), fmt(r.total),
+      ])));
+    } else {
+      out.push("（无数据：最近 60 分钟没有状态写入）");
+    }
+    const hotRows = (act.hot_entities || []).slice(0, 30);
+    if (act.enabled && hotRows.length) {
+      out.push("");
+      out.push("写入最频繁的实体（共 " + fmt(act.hot_entity_count) + " 个有写入，按累计降序列出前 " +
+        hotRows.length + "）：");
+      out.push(rowOut(["实体", "集成", "累计写入"]));
+      out.push("|:--|:--|--:|");
+      hotRows.forEach((r) => out.push(rowOut([r.entity, r.domain, fmt(r.hits)])));
+    }
+    out.push("");
+
+    out.push("### 任务（总数 " + fmt(tasks.total) + "）");
+    const byDomain = (tasks.by_domain || []).slice(0, 20);
+    out.push(byDomain.length
+      ? byDomain.map((p) => p[0] + "=" + p[1]).join("，")
+      : "（没有登记任务）");
+    const byName = (tasks.by_name || []).slice(0, 15);
+    if (byName.length) {
+      out.push("");
+      out.push("同名任务：" + byName.map((p) => "`" + clamp(p[0], 90) + "` ×" + p[1]).join("；"));
+    }
+    out.push("");
+
+    const memTop = (mem.top || []).slice(0, 10);
+    if (memView && memView.data && memView.data.error) {
+      out.push("### 内存：" + memView.data.error);
+    } else if (!mem.enabled) {
+      out.push("### 内存归因：未开启（switch.diag_hub_memory）");
+    } else if (mem.mode === "diff") {
+      out.push("### 内存增量（基线 " + (mem.baseline_at || "-") + "，窗口 " +
+        fmt(mem.window_seconds) + " 秒，总增量 " + signedMb(mem.total_mb) + " MB）");
+      const mi = (mem.integrations || []).slice(0, 15);
+      if (mi.length) {
+        out.push(rowOut(["集成", "增量 MB"]));
+        out.push("|:--|--:|");
+        mi.forEach((r) => out.push(rowOut([r.domain, signedMb(r.mb)])));
+      } else {
+        out.push("（增量都在 1 KB 以内，噪声已过滤）");
+      }
+      if (memTop.length) {
+        out.push("");
+        out.push("增量最大的分配点：");
+        memTop.forEach((t) => out.push("- `" + clamp(t.trace, 140) + "` " +
+          fmt(t.kb, 1) + " KB × " + fmt(t.count)));
+      }
+    } else if (mem.mode === "snap") {
+      out.push("### 内存基线已建立：" + (mem.baseline_at || "-") +
+        "（等 30~60 分钟后再看增量）");
+    } else {
+      out.push("### 内存归因（" +
+        (mem.tracing_seconds !== null && mem.tracing_seconds !== undefined
+          ? "已观察 " + fmt(mem.tracing_seconds) + " 秒 / "
+          : "") +
+        "总量 " + fmt(mem.total_mb, 1) + " MB / " +
+        fmt(mem.total_blocks) + " 块" +
+        (mem.elapsed_seconds !== undefined ? " / " + fmt(mem.elapsed_seconds) + " 秒前采样" : "") +
+        "）" + (memView ? "（手动视图）" : ""));
+      if (memView && lastData && lastData.memory && lastData.memory.enabled) {
+        out.push("（同时的自动采样：总量 " + fmt(lastData.memory.total_mb, 1) + " MB / " +
+          fmt(lastData.memory.total_blocks) + " 块）");
+      }
+      const mi = (mem.integrations || []).slice(0, 15);
+      if (mi.length) {
+        out.push(rowOut(["集成", "MB", "占比", "块数"]));
+        out.push("|:--|--:|--:|--:|");
+        mi.forEach((r) => out.push(rowOut([
+          r.domain, fmt(r.mb, 2), fmt(r.percent, 1) + "%", fmt(r.blocks),
+        ])));
+      }
+      if (memTop.length) {
+        out.push("");
+        out.push("最大分配点：");
+        memTop.forEach((t) => out.push("- `" + clamp(t.trace, 140) + "` " +
+          fmt(t.kb, 1) + " KB × " + fmt(t.count)));
+      }
+    }
+    out.push("");
+
+    if (lis.enabled) {
+      out.push("### 监听器（存活 " + fmt(lis.total_live) + "）");
+      const li = (lis.integrations || []).slice(0, 20);
+      if (li.length) {
+        out.push(rowOut(["集成", "存活", "峰值", "累计注册"]));
+        out.push("|:--|--:|--:|--:|");
+        li.forEach((r) => out.push(rowOut([
+          r.domain, fmt(r.live), fmt(r.peak), fmt(r.registered),
+        ])));
+      } else {
+        out.push("（还没有新的注册事件；重载一次集成就能立刻看到归属）");
+      }
+      const byEvent = (lis.by_event || []).slice(0, 15);
+      if (byEvent.length) {
+        out.push("");
+        out.push("按事件（存活）：" + byEvent
+          .map((r) => "`" + clamp(r.key, 60) + "` " + fmt(r.live))
+          .join("；"));
+      }
+      out.push("");
+      out.push("（只统计开关打开之后发生的注册；已在运行的集成要重载一次才会重新登记）");
+    } else {
+      out.push("### 监听器：未开启（switch.diag_hub_listeners）" +
+        (lis.patch_error ? "，启动失败：" + clamp(lis.patch_error, 200) : ""));
+    }
+    out.push("");
+
+    if (logs.enabled) {
+      out.push("### 日志计数（warning 及以上 " + fmt(logs.total) + "）");
+      const lg = (logs.integrations || []).slice(0, 20);
+      if (lg.length) {
+        out.push(rowOut(["集成", "error", "critical", "warning", "合计"]));
+        out.push("|:--|--:|--:|--:|--:|");
+        lg.forEach((r) => out.push(rowOut([
+          r.domain, fmt(r.error), fmt(r.critical), fmt(r.warning), fmt(r.total),
+        ])));
+        const lastLines = lg.filter((r) => r.last).slice(0, 8);
+        if (lastLines.length) {
+          out.push("");
+          out.push("最近一条日志：");
+          lastLines.forEach((r) => out.push("- " + r.domain + "：" + clamp(r.last, 160)));
+        }
+      }
+    } else {
+      out.push("### 日志计数：未开启（switch.diag_hub_logs）");
+    }
+    return out.join("\n");
+  }
+
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) { /* 落到 execCommand */ }
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.cssText = "position:fixed;top:-1000px;left:-1000px;opacity:0";
+      document.body.appendChild(area);
+      area.select();
+      area.setSelectionRange(0, text.length);
+      const ok = document.execCommand("copy");
+      area.remove();
+      return ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function showFallback(text) {
+    const mask = $("copy-mask");
+    const area = $("copy-text");
+    area.value = text;
+    mask.classList.add("show");
+    area.focus();
+    area.select();
+  }
+
+  async function load() {
+    try {
+      render(await api("a=all"));
+    } catch (err) {
+      const box = $("err");
+      box.textContent = "取数据失败：" + (err && err.message ? err.message : err);
+      box.classList.add("show");
+      $("meta").textContent = "更新失败 " + new Date().toLocaleTimeString();
+    }
+  }
+
+  function schedule() {
+    if (timer) { clearInterval(timer); }
+    timer = setInterval(() => {
+      if (!paused && document.visibilityState === "visible") { load(); }
+    }, INTERVAL);
+  }
+
+  $("mem-toggle").addEventListener("click", () =>
+    memAction(currentMemory().enabled ? "memstop" : "memstart"));
+  $("mem-usage").addEventListener("click", () => memAction("memory"));
+  $("mem-snap").addEventListener("click", () => memAction("snap"));
+  $("mem-diff").addEventListener("click", () => memAction("diff"));
+  $("mem-auto").addEventListener("click", () => memAction("auto"));
+
+  $("copy").addEventListener("click", async () => {
+    const btn = $("copy");
+    if (!lastData) { await load(); }
+    const text = buildReport();
+    if (!text) {
+      btn.textContent = "暂无数据";
+      setTimeout(() => { btn.textContent = "复制报告"; }, 1500);
+      return;
+    }
+    if (await copyText(text)) {
+      btn.textContent = "已复制 ✓";
+      btn.classList.add("ok");
+      setTimeout(() => {
+        btn.textContent = "复制报告";
+        btn.classList.remove("ok");
+      }, 1600);
+    } else {
+      showFallback(text);
+    }
+  });
+
+  $("copy-close").addEventListener("click", () => {
+    $("copy-mask").classList.remove("show");
+  });
+  $("copy-select").addEventListener("click", () => {
+    const area = $("copy-text");
+    area.focus();
+    area.select();
+  });
+  $("copy-mask").addEventListener("click", (e) => {
+    if (e.target === $("copy-mask")) { $("copy-mask").classList.remove("show"); }
+  });
+
+  $("toggle").addEventListener("click", () => {
+    paused = !paused;
+    $("toggle").textContent = paused ? "继续" : "暂停";
+    if (!paused) { load(); }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && !paused) { load(); }
+  });
+
+  load();
+  schedule();
+})();
+</script>
+</body>
+</html>

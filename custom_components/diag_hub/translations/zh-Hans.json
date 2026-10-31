@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Diag Hub",
+        "description": "开发期自检工具：按集成统计状态写入频率与异步任务归属。添加后由 switch.diag_hub_activity 控制开关，关闭时完全卸载、零开销。"
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Diag Hub 已添加，只允许一个实例。"
+    }
+  }
+}
